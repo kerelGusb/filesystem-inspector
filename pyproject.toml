@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=80,<83"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "filesystem-inspector"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.10,<3.16"
+dependencies = ["PySide6-Essentials==6.12.0"]
+
+[project.gui-scripts]
+filesystem-inspector = "fs_inspector.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
