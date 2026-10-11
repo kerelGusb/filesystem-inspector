@@ -14,3 +14,5 @@ filesystem-inspector = "fs_inspector.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+[project.entry-points."fs_inspector.plugins"]
+ext2 = "fs_inspector.plugins.ext2:Ext2Plugin"
