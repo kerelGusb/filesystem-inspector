@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QFileDialog, QHeaderView, QMainWindow, QMessageBox, QSplitter, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import QFileDialog, QHeaderView, QLabel, QMainWindow, QMessageBox, QSplitter, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from fs_inspector.app.inspection import ImageOpenError, InspectionController
 from fs_inspector.ui.hex_view import HexView
@@ -32,18 +32,27 @@ class MainWindow(QMainWindow):
         self.tree.currentItemChanged.connect(self.select_node)
         self.tree.itemExpanded.connect(self.expand_item)
         self.tree.itemActivated.connect(self.activate_item)
-        self.table = QTableWidget(0, 3, self)
-        self.table.setHorizontalHeaderLabels(("Field", "Value", "Bytes"))
+        self.table = QTableWidget(0, 4, self)
+        self.table.setHorizontalHeaderLabels(("Field", "Value", "Offset", "Bytes"))
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.itemSelectionChanged.connect(self.select_field)
+        self.diagnostic_label = QLabel(self)
+        self.diagnostic_label.setWordWrap(True)
+        self.diagnostic_label.setStyleSheet("QLabel { background: #FFF0C2; color: #402C00; padding: 6px; }")
+        self.diagnostic_label.hide()
+        details = QWidget(self)
+        details_layout = QVBoxLayout(details)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+        details_layout.addWidget(self.diagnostic_label)
+        details_layout.addWidget(self.table)
         self.hex_view = HexView(self.controller.read_at, self.controller.size_of, self)
         self.hex_view.read_failed.connect(self.show_error)
 
         top = QSplitter(Qt.Orientation.Horizontal, self)
         top.addWidget(self.tree)
-        top.addWidget(self.table)
+        top.addWidget(details)
         whole = QSplitter(Qt.Orientation.Vertical, self)
         whole.addWidget(top)
         whole.addWidget(self.hex_view)
@@ -122,18 +131,29 @@ class MainWindow(QMainWindow):
         try:
             node = self.controller.get_node(ref)
         except Exception as error:
+            self.table.setRowCount(0)
+            self.hex_view.clear()
             self.show_error(str(error))
             return
         self.fields = node.fields
         self.table.blockSignals(True)
         self.table.setRowCount(len(node.fields))
         for row, field in enumerate(node.fields):
-            for column, value in enumerate((field.name, str(field.value), ", ".join(f"0x{span.offset:X}" for span in field.ranges))):
-                self.table.setItem(row, column, QTableWidgetItem(value))
+            values = (field.name,
+                      repr(field.value) if isinstance(field.value, bytes) else str(field.value),
+                      ", ".join(f"{span.source_id}: 0x{span.offset:X}" for span in field.ranges),
+                      ", ".join(str(span.length) for span in field.ranges))
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                if field.description:
+                    cell.setToolTip(field.description)
+                self.table.setItem(row, column, cell)
         self.table.clearSelection()
         self.table.blockSignals(False)
+        self.diagnostic_label.setText("; ".join(node.diagnostics))
+        self.diagnostic_label.setVisible(bool(node.diagnostics))
         self.hex_view.show_ranges(node.ranges, highlight=True)
-        self.statusBar().showMessage(node.title)
+        self.statusBar().showMessage("; ".join(node.diagnostics) if node.diagnostics else node.title)
 
     def select_field(self):
         selected = self.table.selectionModel().selectedRows()
@@ -142,8 +162,10 @@ class MainWindow(QMainWindow):
         field = self.fields[selected[0].row()]
         if field.ranges:
             self.hex_view.show_ranges(field.ranges, highlight=True)
+            self.statusBar().showMessage(f"{field.name}: source bytes highlighted")
         else:
             self.hex_view.clear_highlight()
+            self.statusBar().showMessage(f"{field.name}: no exact source byte range")
 
     def show_error(self, message):
         self.statusBar().showMessage(message)
@@ -154,6 +176,8 @@ class MainWindow(QMainWindow):
         self.tree.clear()
         self.tree.blockSignals(False)
         self.table.setRowCount(0)
+        self.diagnostic_label.clear()
+        self.diagnostic_label.hide()
         self.hex_view.clear()
         self.fields = ()
         self.source_id = None
