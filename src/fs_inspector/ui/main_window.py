@@ -8,6 +8,10 @@ from fs_inspector.app.inspection import ImageOpenError, InspectionController
 from fs_inspector.ui.hex_view import HexView
 
 
+CURSOR_ROLE = Qt.ItemDataRole.UserRole.value + 1
+LOADED_ROLE = Qt.ItemDataRole.UserRole.value + 2
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -26,6 +30,8 @@ class MainWindow(QMainWindow):
         self.tree = QTreeWidget(self)
         self.tree.setHeaderLabel("Structures")
         self.tree.currentItemChanged.connect(self.select_node)
+        self.tree.itemExpanded.connect(self.expand_item)
+        self.tree.itemActivated.connect(self.activate_item)
         self.table = QTableWidget(0, 3, self)
         self.table.setHorizontalHeaderLabels(("Field", "Value", "Bytes"))
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -59,16 +65,62 @@ class MainWindow(QMainWindow):
         self.source_id = opened.source_id
         self.setWindowTitle(f"Filesystem Inspector — {Path(path).name}")
         for node in opened.root_nodes:
-            item = QTreeWidgetItem(self.tree, [node.title])
-            item.setData(0, Qt.ItemDataRole.UserRole, node.ref)
+            self.add_node(self.tree.invisibleRootItem(), node.title, node.ref)
         self.tree.setCurrentItem(self.tree.topLevelItem(0))
         return True
+
+    def add_node(self, parent, label, ref, expandable=True):
+        ancestor = parent
+        while ancestor is not None:
+            if ancestor.data(0, Qt.ItemDataRole.UserRole) == ref:
+                label += " [already in path]"
+                expandable = False
+                break
+            ancestor = ancestor.parent()
+        item = QTreeWidgetItem(parent, [label])
+        item.setData(0, Qt.ItemDataRole.UserRole, ref)
+        if expandable:
+            QTreeWidgetItem(item, ["Expand to load links"]).setDisabled(True)
+        return item
+
+    def expand_item(self, item):
+        cursor = item.data(0, CURSOR_ROLE)
+        if isinstance(cursor, str):
+            parent = item.parent()
+            if parent is not None:
+                parent.removeChild(item)
+                self.load_links(parent, cursor)
+        elif item.data(0, Qt.ItemDataRole.UserRole) is not None and not item.data(0, LOADED_ROLE):
+            item.takeChildren()
+            item.setData(0, LOADED_ROLE, True)
+            self.load_links(item, None)
+
+    def activate_item(self, item):
+        if isinstance(item.data(0, CURSOR_ROLE), str):
+            self.expand_item(item)
+
+    def load_links(self, parent, cursor):
+        ref = parent.data(0, Qt.ItemDataRole.UserRole)
+        try:
+            page = self.controller.list_links(ref, cursor, 64)
+        except Exception as error:
+            self.show_error(str(error))
+            return
+        for link in page.links:
+            self.add_node(parent, link.label, link.target, link.target_has_links is not False)
+        if page.next_cursor is not None:
+            more = QTreeWidgetItem(parent, ["Load more..."])
+            more.setData(0, CURSOR_ROLE, page.next_cursor)
+            QTreeWidgetItem(more, ["Next page"]).setDisabled(True)
 
     def select_node(self, item, previous):
         if item is None:
             return
+        ref = item.data(0, Qt.ItemDataRole.UserRole)
+        if ref is None:
+            return
         try:
-            node = self.controller.get_node(item.data(0, Qt.ItemDataRole.UserRole))
+            node = self.controller.get_node(ref)
         except Exception as error:
             self.show_error(str(error))
             return
