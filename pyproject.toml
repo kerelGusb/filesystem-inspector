@@ -16,3 +16,4 @@ filesystem-inspector = "fs_inspector.__main__:main"
 where = ["src"]
 [project.entry-points."fs_inspector.plugins"]
 ext2 = "fs_inspector.plugins.ext2:Ext2Plugin"
+fat32 = "fs_inspector.plugins.fat32:Fat32Plugin"
