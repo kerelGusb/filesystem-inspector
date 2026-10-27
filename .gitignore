@@ -7,3 +7,4 @@ dist/
 .tmp/
 .pytest_cache/
 *.md
+/docs/diagrams/
