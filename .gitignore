@@ -7,4 +7,5 @@ dist/
 .tmp/
 .pytest_cache/
 *.md
+*.[pP][dD][fF]
 /docs/diagrams/
